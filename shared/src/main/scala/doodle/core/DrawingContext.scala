@@ -1,4 +1,5 @@
-package doodle.core
+package doodle
+package core
 
 // import scalaz.syntax.applicative._
 // import scalaz.std.option._
@@ -8,11 +9,10 @@ case class DrawingContext(
   lineColor: Option[Color],
   lineCap: Option[Line.Cap],
   lineJoin: Option[Line.Join],
-
   fillColor: Option[Color]
 ) {
   def stroke: Option[Stroke] =
-    //Scalaz applicative syntax apparently doesn't yet compiled in Scala.js
+    //An applicative would reduce this code to
     //(lineWidth |@| lineColor |@| lineCap |@| lineJoin){Stroke.apply _}
     for {
       w <- lineWidth

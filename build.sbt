@@ -15,6 +15,7 @@ lazy val doodle = crossProject.
       |import doodle.core._
       |import doodle.syntax._
       |import doodle.jvm.Java2DCanvas
+      |import doodle.examples._
     """.trim.stripMargin,
     cleanupCommands in console := """
       |doodle.jvm.quit()
