@@ -104,7 +104,7 @@ private[event] final class Join[A, B, C](f: (Observation[A], Observation[B]) => 
         valueA = Some(in)
         valueB match {
           case Some(Value(b)) =>
-            join 
+            update(f(in, Value(b)))
           // Don't propagate if B has already halted propagation, or has no value
           case _ => ()
         }
@@ -117,17 +117,10 @@ private[event] final class Join[A, B, C](f: (Observation[A], Observation[B]) => 
         valueB = Some(in)
         valueA match {
           case Some(Value(a)) =>
-            join 
+            update(f(Value(a), in))
           // Don't propagate if A has already halted propagation, or has no value
           case _ => ()
         }
       }
     }
-
-  def join: Unit =
-    for {
-      a <- valueA
-      b <- valueB
-    } yield f(a, b)
-  
 }
