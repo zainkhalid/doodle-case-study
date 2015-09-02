@@ -20,7 +20,7 @@ object Canvas {
 
   def animate(canvas: backend.Canvas, frames: EventStream[Image]) =
     frames.map(frame => {
-                 canvas.clear(Color.white)
+                 canvas.clear(Color.black)
                  frame.draw(canvas)
                })
 }
