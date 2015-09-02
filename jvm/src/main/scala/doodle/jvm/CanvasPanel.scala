@@ -23,6 +23,12 @@ class CanvasPanel extends JPanel {
 
   var currentTimer: Timer = null
 
+  /** Release any resources held by this panel */
+  def close(): Unit = {
+    if(currentTimer != null)
+      currentTimer.stop()
+  }
+
   override def paintComponent(graphics: Graphics): Unit = {
     val context = graphics.asInstanceOf[Graphics2D]
     context.setRenderingHints(new RenderingHints(
@@ -118,8 +124,9 @@ class CanvasPanel extends JPanel {
 
       case SetKeyDownCallback(callback) =>
         val listener = new KeyListener() {
-          def keyPressed(evt: KeyEvent): Unit =
+          def keyPressed(evt: KeyEvent): Unit = {
             callback(KeyCode.toKey(evt.getKeyCode()))
+          }
 
           def keyReleased(evt: KeyEvent): Unit =
             ()
@@ -129,6 +136,10 @@ class CanvasPanel extends JPanel {
         }
         this.addKeyListener(listener)
     }
+
+    // We don't want to keep re-adding callbacks everytime we get a new
+    // operation, so remove operations that are not idempotent.
+    stripNonIdempotentOperations()
   }
   // The Ops we have pulled off the queue
   private val operations = new Queue[Op]() 
@@ -146,6 +157,21 @@ class CanvasPanel extends JPanel {
       operations += op
       op = queue.poll()
     }
+  }
+
+  /** Remove non-idempotent operations from the queue. Idempotent operations are
+    * those we can repeat without an observable effect. */
+  private def stripNonIdempotentOperations(): Unit = {
+    def idempotent(op: Op): Boolean = {
+      op match {
+        case SetAnimationFrameCallback(_) => false
+        case SetKeyDownCallback(_) => false
+        case _ => true
+      }
+    }
+    val safe = operations.filter(idempotent)
+    operations.clear()
+    operations ++= safe
   }
 
   private def awtColor(color: Color): AwtColor = {
