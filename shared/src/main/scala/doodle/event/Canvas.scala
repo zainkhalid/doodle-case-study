@@ -5,17 +5,11 @@ import doodle.core.{Color, Image}
 
 object Canvas {
   def animationFrameEventStream(canvas: backend.Canvas): EventStream[Double] = {
-    val (callback, stream) = EventStream.streamAndCallback[Double]()
-
-    canvas.setAnimationFrameCallback(callback)
-    stream
+    EventStream.fromCallbackHandler(canvas.setAnimationFrameCallback)
   }
 
   def keyDownEventStream(canvas: backend.Canvas): EventStream[backend.Key] = {
-    val (callback, stream) = EventStream.streamAndCallback[backend.Key]()
-
-    canvas.setKeyDownCallback(callback)
-    stream
+    EventStream.fromCallbackHandler(canvas.setKeyDownCallback)
   }
 
   def animate(canvas: backend.Canvas, frames: EventStream[Image]) =

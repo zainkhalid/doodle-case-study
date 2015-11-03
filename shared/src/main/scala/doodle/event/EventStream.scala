@@ -2,30 +2,11 @@ package doodle
 package event
 
 sealed trait EventStream[A] {
-  def mapObservation[B](f: Observation[A] => Observation[B]): EventStream[B]
-  def foldpObservation[B](seed: Observation[B])(f: (Observation[A], Observation[B]) => Observation[B]): EventStream[B]
-  def joinObservation[B, C](that: EventStream[B])(f: (Observation[A], Observation[B]) => Observation[C]): EventStream[C]
+  def map[B](f: A => B): EventStream[B]
 
-  def onObservation(f: Observation[A] => Unit)
+  def foldp[B](seed: B)(f: (A, B) => B): EventStream[B]
 
-  // Utility functions
-
-  def map[B](f: A => B): EventStream[B] =
-    mapObservation[B](_.map(f))
-
-  def foldp[B](seed: B)(f: (A, B) => B): EventStream[B] =
-    foldpObservation[B](Value(seed)){ (a, b) =>
-      // Strictly speaking, only an Applicative is needed here
-      for {
-        theA <- a
-        theB <- b
-      } yield f(theA, theB)
-    }
-
-  def join[B, C](that: EventStream[B])(f: (A, B) => C): EventStream[C] =
-    joinObservation[B, C](that){ (a, b) =>
-      a.join(b)(f)
-    }
+  def join[B](that: EventStream[B]): EventStream[(A,B)]
 }
 object EventStream {
   def streamAndCallback[A](): (A => Unit, EventStream[A]) = {
@@ -36,11 +17,17 @@ object EventStream {
 
     (callback, stream)
   }
+
+  def fromCallbackHandler[A](handler: (A => Unit) => Unit) = {
+    val stream = new Source[A]()
+    handler((evt: A) => stream.push(evt))
+    stream
+  }
 }
 
 
 trait Observer[A] {
-  def observe(in: Observation[A]): Unit
+  def observe(in:A): Unit
 }
 
 /**
@@ -53,59 +40,53 @@ private[event] sealed trait Observable[A] extends EventStream[A] {
   val observers: mutable.ListBuffer[Observer[A]] =
     new mutable.ListBuffer()
 
-  def update(observation: Observation[A]): Unit =
+  def update(observation: A): Unit =
     observers.foreach(_.observe(observation))
 
-  def mapObservation[B](f: Observation[A] => Observation[B]): EventStream[B] = {
-    val node = new Map(f)
-    observers += node
-    node
+  def map[B](f: A => B): EventStream[B] = 
+    withObserver(new Map(f))
+
+  def foldp[B](seed: B)(f: (A, B) => B): EventStream[B] =
+    withObserver(new FoldP(seed, f))
+
+  def join[B](that: EventStream[B]): EventStream[(A,B)] = {
+    val stream = new Join[A,B]()
+    this.map(a => stream.observerA.observe(a))
+    that.map(b => stream.observerB.observe(b))
+    stream
   }
 
-    def foldpObservation[B](seed: Observation[B])(f: (Observation[A], Observation[B]) => Observation[B]): EventStream[B] = {
-    var currentSeed = seed
-      val node = new Map( (obs: Observation[A]) => {
-          val nextSeed = f(obs, currentSeed)
-          currentSeed = nextSeed
-          nextSeed
-        })
-    observers += node
-    node
+  def withObserver[B](stream: Observer[A] with EventStream[B]): EventStream[B] = {
+    observers += stream
+    stream
   }
-
-  def joinObservation[B, C](that: EventStream[B])(f: (Observation[A], Observation[B]) => Observation[C]): EventStream[C] = {
-    val node = new Join(f)
-    this.onObservation(evt => node.observerA.observe(evt))
-    that.onObservation(evt => node.observerB.observe(evt))
-    node
-  }
-
-  def onObservation(f: Observation[A] => Unit): Unit =
-    observers += new Observer[A] {
-      def observe(in: Observation[A]): Unit =
-        f(in)
-    }
 }
 private[event] final class Source[A]() extends Observable[A] {
   def push(in: A): Unit =
-    update(Value(in))
+    update(in)
 }
-private[event] final class Map[A, B](f: Observation[A] => Observation[B]) extends Observer[A] with Observable[B] {
-  def observe(in: Observation[A]): Unit =
+private[event] final class Map[A, B](f: A => B) extends Observer[A] with Observable[B] {
+  def observe(in: A): Unit =
     update(f(in))
 }
-private[event] final class Join[A, B, C](f: (Observation[A], Observation[B]) => Observation[C]) extends Observable[C] {
-  var valueA: Option[Observation[A]] = None
-  var valueB: Option[Observation[B]] = None
+private[event] final class FoldP[A,B](var seed: B, f: (A, B) => B) extends Observer[A] with Observable[B] {
+  def observe(in: A): Unit = {
+    val newSeed = f(in, seed)
+    seed = newSeed
+    update(newSeed)
+  }
+}
+private[event] final class Join[A, B]() extends Observable[(A,B)] {
+  var valueA: Option[A] = None
+  var valueB: Option[B] = None
 
   val observerA: Observer[A] =
     new Observer[A] {
-      def observe(in: Observation[A]): Unit = {
-        valueA = Some(in)
+      def observe(a: A): Unit = {
+        valueA = Some(a)
         valueB match {
-          case Some(Value(b)) =>
-            update(f(in, Value(b)))
-          // Don't propagate if B has already halted propagation, or has no value
+          case Some(b) =>
+            update( (a,b) )
           case _ => ()
         }
       }
@@ -113,12 +94,11 @@ private[event] final class Join[A, B, C](f: (Observation[A], Observation[B]) => 
 
   val observerB: Observer[B] =
     new Observer[B] {
-      def observe(in: Observation[B]) = {
-        valueB = Some(in)
+      def observe(b: B) = {
+        valueB = Some(b)
         valueA match {
-          case Some(Value(a)) =>
-            update(f(Value(a), in))
-          // Don't propagate if A has already halted propagation, or has no value
+          case Some(a) =>
+            update( (a,b) )
           case _ => ()
         }
       }
