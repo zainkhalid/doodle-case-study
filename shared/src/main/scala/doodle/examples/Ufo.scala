@@ -18,7 +18,7 @@ object Ufo {
     val ufo = Circle(20) fillColor (Color.red) lineColor (Color.green)
 
     val velocity: EventStream[Vec] =
-      keys.foldp(Vec.zero)((key, prev) => {
+      keys.scanLeft(Vec.zero)((key, prev) => {
           val velocity =
             key match {
               case Key.Up    => prev + Vec(0, 1)
@@ -31,18 +31,9 @@ object Ufo {
         }
       )
 
-    // a b c d
-    // 1 2 3 4
-    // (a, 1) (b, 2) (c, 3)...
-
-    // a      b           c     d
-    // 1             2
-    // (a, 1)        (b, 2)  <--- zip
-    // (a, 1) (b, 1) (b, 2)  <--- join
-
     val location: EventStream[Vec] =
       redraw.join(velocity).map{ case(ts, v) => v }.
-        foldp(Vec.zero){ (velocity, prev) =>
+        scanLeft(Vec.zero){ (velocity, prev) =>
           val location = prev + velocity
           Vec(location.x.min(300).max(-300), location.y.min(300).max(-300))
         }
