@@ -18,7 +18,7 @@ object Ufo {
     val ufo = Circle(20) fillColor (Color.red) lineColor (Color.green)
 
     val velocity: EventStream[Vec] =
-      keys.scanLeft(Vec.zero)((key, prev) => {
+      keys.scanLeft(Vec.zero)((prev, key) => {
           val velocity =
             key match {
               case Key.Up    => prev + Vec(0, 1)
