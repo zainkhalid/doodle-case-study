@@ -14,6 +14,8 @@ object EventStream {
     handler((evt: A) => stream.observe(evt))
     stream
   }
+  def source[A]: Observer[A] with EventStream[A] =
+    Source[A]
 }
 sealed trait Observer[A] {
   def observe(in: A): Unit

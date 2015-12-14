@@ -43,7 +43,7 @@ sealed trait Image {
     BoundingBox(this)
 
   /** Utility function */
-  def draw(canvas: Canvas): Unit =
+  def draw(implicit canvas: Canvas): Unit =
     draw(canvas, DrawingContext.whiteLines, Vec.zero)
 
   def draw(canvas: Canvas, context: DrawingContext, origin: Vec): Unit = {

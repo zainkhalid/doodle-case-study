@@ -45,7 +45,7 @@ class Java2DCanvas(val panel: CanvasPanel) extends Canvas {
 }
 
 object Java2DCanvas {
-  def canvas: Canvas = {
+  implicit def canvas: Canvas = {
     val frame = new CanvasFrame()
     frame.setVisible(true)
     frame.panel.canvas
