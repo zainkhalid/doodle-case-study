@@ -1,83 +1,67 @@
 package doodle
 package event
 
+import java.util.concurrent.{Semaphore,ConcurrentLinkedQueue}
+
 sealed trait EventStream[A] {
-  def map[B](f: A => B): EventStream[B]
+  def map[B](f: A => B): EventStream[B] =
+    Map(this, f)
 
-  def scanLeft[B](seed: B)(f: (B,A) => B): EventStream[B]
+  def scan[B](seed: B)(f: (B,A) => B): EventStream[B] =
+    Scan(this, seed, f)
 
-  def join[B](that: EventStream[B]): EventStream[(A,B)]
+  def join[B](that: EventStream[B]): EventStream[(A,B)] =
+    Join(this, that)
+
+  def runFold[B](seed: B)(f: (B,A) => B): B = {
+    val semaphore = new Semaphore(0)
+    // Replace Source and Emit with Queue in the graph, and start callbacks
+    // enqueing messages
+    def startSources[A](node: EventStream[A]): EventStream[A] =
+      node match {
+        case Map(source, f) => Map(startSources(source), f)
+        case Scan(source, s, f) => Scan(startSources(source), s ,f)
+        case Join(l, r) => Join(startSources(l), startSources(r))
+        case Emit(evts) =>
+          val q = new ConcurrentLinkedQueue[A]()
+          evts.foreach(e => q.add(e))
+          Queue(q)
+        case Callbank(h) =>
+          val q = new ConcurrentLinkedQueue[A]()
+          handler(a => q.add(a))
+          Queue(q)
+      }
+
+    def eval(source: EventSource[A]): A =
+
+
+    val network = startSources(this)
+
+  }
 }
+final case class Map[A,B](source: EventStream[A], f: A => B) extends EventStream[B]
+final case class Scan[A,B](source: EventStream[A], seed: B, f: (B,A) => B) extends EventStream[B]
+final case class Join[A,B](left: EventStream[A], right: EventStream[B]) extends EventStream[(A,B)]
+final case class Emit[A](events: List[A]) extends EventStream[A]
+final case class Callback[A](handler: (A => Unit) => Unit) extends EventStream[A]
 object EventStream {
   def fromCallbackHandler[A](handler: (A => Unit) => Unit) = {
-    val stream = new Source[A]()
-    handler((evt: A) => stream.observe(evt))
+    val stream = Callback(handler)
     stream
   }
-}
-sealed trait Observer[A] {
-  def observe(in: A): Unit
-}
-/**
-  * Internal trait that provides implementation of EventStream methods in terms of a
-  * mutable sequence of observers
-  */
-private[event] sealed trait Node[A,B] extends Observer[A] with EventStream[B] {
-  import scala.collection.mutable
 
-  val observers: mutable.ListBuffer[Observer[B]] =
-    new mutable.ListBuffer()
+  def emit[A](event: A, events: A*): EventStream[A] =
+    Emit(event :: events.toList)
 
-  def update(observation: B): Unit =
-    observers.foreach(_.observe(observation))
-
-  def map[C](f: B => C): EventStream[C] = 
-    withObserver(Map(f))
-
-  def scanLeft[C](seed: C)(f: (C,B) => C): EventStream[C] =
-    withObserver(ScanLeft(seed, f))
-
-  def join[C](that: EventStream[C]): EventStream[(B,C)] = {
-    val node = Join[B,C]()
-    this.map(b => node.updateLeft(b))
-    that.map(c => node.updateRight(c))
-    node
-  }
-
-  def withObserver[C](stream: Node[B,C]): EventStream[C] = {
-    observers += stream
-    stream
+  /** This is the stateful internal representation (IR) that we compile event streams into. */
+  object IR {
+    sealed trait IR[A]
+    final case class Map[A,B](source: IR[A], f: A => B) extends IR[A]
+    final case class Scan[A,B](source: IR[A], var seed: B, f(B,A) => B) extends IR[A]
+    final case class Join[A,B](left: IR[A], right: IR[A]) extends IR[A] {
+      var lastLeft: Option[A] = None
+      var lastRight: Option[B] = None
+    }
+    final case class Queue[A](queue: ConcurrentLinkedQueue[A]) extends IR[A]
   }
 }
-private[event] final case class Source[A]() extends Node[A,A] {
-  def observe(in: A): Unit =
-    update(in)
-}
-private[event] final case class Map[A,B](f: A => B) extends Node[A,B] {
-  def observe(in: A): Unit =
-    update(f(in))
-}
-private[event] final case class ScanLeft[A,B](var seed: B, f: (B,A) => B) extends Node[A,B] {
-  def observe(in: A): Unit = {
-    val newSeed = f(seed, in)
-    seed = newSeed
-    update(newSeed)
-  }
-}
-private[event] final case class Join[A,B]() extends Node[(A,B),(A,B)] {
-  val state: MutablePair[Option[A], Option[B]] = new MutablePair(None, None)
-  def observe(in: (A,B)): Unit =
-    update(in)
-
-  def updateLeft(in: A) = {
-    state.l = Some(in)
-    state.r.foreach { r => this.observe( (in, r) ) }
-  }
-
-  def updateRight(in: B) = {
-    state.r = Some(in)
-    state.l.foreach { l => this.observe( (l, in) ) }
-  }
-}
-
-private [event] class MutablePair[A,B](var l: A, var r: B)
